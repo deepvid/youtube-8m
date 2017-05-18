@@ -24,7 +24,7 @@ import tensorflow.contrib.slim as slim
 
 FLAGS = flags.FLAGS
 flags.DEFINE_integer(
-    "moe_num_mixtures", 2,
+    "moe_num_mixtures", 4,
     "The number of mixtures (excluding the dummy 'expert') used for MoeModel.")
 
 class LogisticModel(models.BaseModel):
@@ -75,42 +75,60 @@ class MoeModel(models.BaseModel):
     """
     num_mixtures = num_mixtures or FLAGS.moe_num_mixtures
 
+    
     gate_activations1 = slim.fully_connected(
         model_input,
         vocab_size * (num_mixtures + 1),
-        activation_fn=None,
+        activation_fn=tf.nn.relu,
         biases_initializer=None,
         weights_regularizer=slim.l2_regularizer(l2_penalty),
         scope="gates1")
+    gate_activations2 = slim.fully_connected(
+        gate_activations1,
+        vocab_size * (num_mixtures + 1),
+        activation_fn=tf.nn.relu,
+        biases_initializer=None,
+        weights_regularizer=slim.l2_regularizer(l2_penalty),
+        scope="gates2")
     expert_activations1 = slim.fully_connected(
         model_input,
         vocab_size * num_mixtures,
         activation_fn=None,
         weights_regularizer=slim.l2_regularizer(l2_penalty),
         scope="experts1")
-    gate_activations2 = slim.fully_connected(
-        model_input,
+    gating_distribution1 = tf.nn.softmax(tf.reshape(
+        gate_activations2,
+        [-1, num_mixtures + 1]))  # (Batch * #Labels) x (num_mixtures + 1)
+    expert_distribution1 = tf.nn.sigmoid(tf.reshape(
+        expert_activations1,
+        [-1, num_mixtures]))  # (Batch * #Labels) x num_mixtures
+    final_probabilities_by_class_and_batch1 = tf.reduce_sum(
+        gating_distribution1[:, :num_mixtures] * expert_distribution1, 1)
+    final_probabilities1 = tf.reshape(final_probabilities_by_class_and_batch1,
+                                     [-1, vocab_size])
+    
+    '''gate_activations2 = slim.fully_connected(
+        final_probabilities1,
         vocab_size * (num_mixtures + 1),
         activation_fn=None,
         biases_initializer=None,
         weights_regularizer=slim.l2_regularizer(l2_penalty),
         scope="gates2")
     expert_activations2 = slim.fully_connected(
-        expert_activations1,
+        final_probabilities1,
         vocab_size * num_mixtures,
         activation_fn=None,
         weights_regularizer=slim.l2_regularizer(l2_penalty),
         scope="experts2")
-
-    gating_distribution = tf.nn.softmax(tf.reshape(
-        gate_activations,
+    gating_distribution2 = tf.nn.softmax(tf.reshape(
+        gate_activations2,
         [-1, num_mixtures + 1]))  # (Batch * #Labels) x (num_mixtures + 1)
-    expert_distribution = tf.nn.sigmoid(tf.reshape(
-        expert_activations,
+    expert_distribution2 = tf.nn.sigmoid(tf.reshape(
+        expert_activations2,
         [-1, num_mixtures]))  # (Batch * #Labels) x num_mixtures
-
-    final_probabilities_by_class_and_batch = tf.reduce_sum(
-        gating_distribution[:, :num_mixtures] * expert_distribution, 1)
-    final_probabilities = tf.reshape(final_probabilities_by_class_and_batch,
-                                     [-1, vocab_size])
-    return {"predictions": final_probabilities}
+    final_probabilities_by_class_and_batch2 = tf.reduce_sum(
+        gating_distribution2[:, :num_mixtures] * expert_distribution2, 1)
+    final_probabilities2 = tf.reshape(final_probabilities_by_class_and_batch2,
+                                     [-1, vocab_size])'''
+    
+    return {"predictions": final_probabilities1}
