@@ -41,8 +41,11 @@ class LogisticModel(models.BaseModel):
       A dictionary with a tensor containing the probability predictions of the
       model in the 'predictions' key. The dimensions of the tensor are
       batch_size x num_classes."""
+    net = slim.fully_connected(
+        model_input, 3000, activation_fn=tf.nn.relu,
+        weights_regularizer=slim.l2_regularizer(l2_penalty))
     output = slim.fully_connected(
-        model_input, vocab_size, activation_fn=tf.nn.sigmoid,
+        net, vocab_size, activation_fn=tf.nn.sigmoid,
         weights_regularizer=slim.l2_regularizer(l2_penalty))
     return {"predictions": output}
 
@@ -78,14 +81,14 @@ class MoeModel(models.BaseModel):
     
     gate_activations1 = slim.fully_connected(
         model_input,
-        vocab_size * (num_mixtures + 1),
+        50,
         activation_fn=tf.nn.relu,
         biases_initializer=None,
         weights_regularizer=slim.l2_regularizer(l2_penalty),
         scope="gates1")
     gate_activations2 = slim.fully_connected(
         gate_activations1,
-        vocab_size * (num_mixtures + 1),
+        num_mixtures,
         activation_fn=tf.nn.relu,
         biases_initializer=None,
         weights_regularizer=slim.l2_regularizer(l2_penalty),
@@ -96,12 +99,16 @@ class MoeModel(models.BaseModel):
         activation_fn=None,
         weights_regularizer=slim.l2_regularizer(l2_penalty),
         scope="experts1")
+
     gating_distribution1 = tf.nn.softmax(tf.reshape(
         gate_activations2,
-        [-1, num_mixtures + 1]))  # (Batch * #Labels) x (num_mixtures + 1)
+        [-1, num_mixtures]))  # (Batch * #Labels) x (num_mixtures + 1)
+    #gating_distribution1 = tf.reshape(gating_distribution1, [num_mixtures, 1])
+    #gating_distribution1 = tf.reshape(tf.tile(gating_distribution1, [1, vocab_size]), [1, num_mixtures])
     expert_distribution1 = tf.nn.sigmoid(tf.reshape(
         expert_activations1,
         [-1, num_mixtures]))  # (Batch * #Labels) x num_mixtures
+
     final_probabilities_by_class_and_batch1 = tf.reduce_sum(
         gating_distribution1[:, :num_mixtures] * expert_distribution1, 1)
     final_probabilities1 = tf.reshape(final_probabilities_by_class_and_batch1,
